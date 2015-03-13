@@ -1,0 +1,257 @@
+#!/usr/bin/env escript
+%%! -smp enable
+%------------------------------------------------------------------------------
+%
+% Licensed under the Apache License, Version 2.0 (the "License");
+% you may not use this file except in compliance with the License.
+% You may obtain a copy of the License at
+%
+%     http://www.apache.org/licenses/LICENSE-2.0
+%
+% Unless required by applicable law or agreed to in writing, software
+% distributed under the License is distributed on an "AS IS" BASIS,
+% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+% See the License for the specific language governing permissions and
+% limitations under the License.
+%
+%-----------------------------------------------------------------------------
+%
+% @author Infoblox Inc <info@infoblox.com>
+% @copyright 2015 Infoblox Inc
+%
+% Read grid .gz log files and write out a dobby loader file.
+-module(gridlog).
+
+-include_lib("kernel/include/inet.hrl").
+
+-record(options, {
+    pcount = 4,
+    output, % output dir
+    input = [] % input files
+}).
+
+main(Args = [_|_]) ->
+    Options = getopts(Args, #options{}),
+    run(Options);
+main(_) ->
+    usage().
+
+usage(Message) ->
+    io:format("Usage: ~s~n", [Message]),
+    usage().
+
+usage() ->
+    io:format("gridlog -p process-count -o output-dir gridlog.gz ...\n"),
+    io:format("gridlog -p process-count -o output-dir -d input_dir\n"),
+    halt(1).
+
+getopts([], Options) ->
+    validate_options(Options),
+    Options;
+getopts(["-p", Count | R], Options) ->
+    getopts(R, Options#options{pcount = list_to_integer(Count)});
+getopts(["-i", Dir | R], Options) ->
+    {ok, Entries} = file:list_dir(Dir),
+    Paths = files([filename:join(Dir, E) || E <- Entries]),
+    getopts(R, Options#options{input = Paths});
+getopts(["-o", Dirname | R], Options) ->
+    ensure_dir(Dirname),
+    getopts(R, Options#options{output = Dirname});
+getopts([Filename | R], Options = #options{input = Input}) ->
+    getopts(R, Options#options{input = [Filename | Input]}).
+
+files(Entries) ->
+    lists:filter(fun filelib:is_regular/1, Entries).
+
+ensure_dir(DirName) ->
+    case file:make_dir(DirName) of
+        ok -> ok;
+        _ -> case filelib:is_dir(DirName) of
+                true -> ok;
+                _ -> usage("No output dir")
+            end
+    end.
+
+validate_options(Options) ->
+    validate_pcount(Options#options.pcount),
+    validate_output(Options#options.output),
+    validate_input(Options#options.input).
+
+validate_pcount(C) when C > 0 ->
+    ok;
+validate_pcount(_) ->
+    usage("invalid pcount").
+
+validate_output(O) when is_list(O) ->
+    ok;
+validate_output(_) ->
+    usage("Invalid output dir").
+
+validate_input(Filenames) when length(Filenames) > 0 ->
+    ok;
+validate_input(undefined) ->
+    usage("No input files");
+validate_input(_) ->
+    usage("Invalid input files").
+
+run(#options{pcount = Pcount, input = InputFiles, output = OutputDir}) ->
+    ProcessLists = split(Pcount, InputFiles),
+    Parent = self(),
+    Refs = lists:map(
+            fun(Filenames) ->
+                Ref = make_ref(),
+                spawn(fun() ->
+                        process(OutputDir, Filenames),
+                        Parent ! Ref
+                    end),
+                Ref
+            end, ProcessLists),
+    wait(Refs).
+
+wait(Refs) ->
+    lists:foreach(
+        fun(Ref) ->
+            receive Ref -> ok end
+        end, Refs).
+
+split(Count, List) ->
+    split(Count, length(List) div Count, List, []).
+
+split(1, _, R, Acc) ->
+    [R | Acc];
+split(Count, SegLength, R, Acc) ->
+    {Next, Rest} = lists:split(SegLength, R),
+    split(Count-1, SegLength, Rest, [Next | Acc]).
+
+process(OutputDir, Filenames) ->
+    lists:foreach(
+        fun(Path) ->
+            write_file(
+                filename:join(OutputDir, basename(Path) ++ ".dobby"),
+                convert_logfile(Path))
+        end, Filenames).
+
+write_file(_, []) ->
+    ok;
+write_file(FileName, Contents) ->
+    file:write_file(FileName, io_lib:format("~p.~n", [Contents])).
+
+basename(Path) ->
+    filename:rootname(filename:basename(Path)).
+
+convert_logfile(Filename) ->
+    {ok, Contents} = file:read_file(Filename),
+    output(parse_logfile(safe_gunzip(Contents))).
+
+safe_gunzip(ZBin) ->
+    try
+        zlib:gunzip(ZBin)
+    catch
+        error:data_error -> <<>>
+    end.
+
+parse_logfile(Bin) ->
+    % match log records:
+    % ipv4 example:
+    %   15-May-2014 13:33:18.468 client 192.168.11.172#50276: view
+    %   8: UDP: query: p14-keyvalueservice.icloud.com IN A response:
+    %   NOERROR + p14-keyvalueservice.icloud.com. 86400 IN CNAME
+    %   p14-keyvalueservice.icloud.com.akadns.net.;
+    %   p14-keyvalueservice.icloud.com.akadns.net. 120 IN A 17.151.226.32;
+    %   p14-keyvalueservice.icloud.com.akadns.net. 120 IN A 17.151.226.33;
+
+    % ipv6 examples:
+    %   15-May-2014 13:33:26.049 client 192.168.11.130#49974: view
+    %   8: UDP: query: www.isg-apple.com.akadns.net IN AAAA response:
+    %   NOERROR + www.isg-apple.com.akadns.net. 27 IN CNAME
+    %   www.apple.com.edgekey.net.; www.apple.com.edgekey.net. 465 IN
+    %   CNAME e3191.dscc.akamaiedge.net.; e3191.dscc.akamaiedge.net.
+    %   20 IN AAAA 2001:418:142a:194::c77; e3191.dscc.akamaiedge.net.
+    %   20 IN AAAA 2001:418:142a:19d::c77; e3191.dscc.akamaiedge.net.
+    %   20 IN AAAA 2001:418:142a:18e::c77;
+    %
+    %   29-Oct-2014 09:48:02.588 client 2620:10a:6000:2000::2c6#7908:
+    %   UDP: query: daisy.ubuntu.com IN A response: NOERROR + daisy.ubuntu.com.
+    %   339 IN A 91.189.92.55; daisy.ubuntu.com. 339 IN A 91.189.92.57;
+    %
+    %   29-Oct-2014 09:48:06.309 client 2620:10a:6000:2000::28c#23959:
+    %   UDP: query: outlook.infoblox.com IN A response: NOERROR +A
+    %   outlook.infoblox.com. 10 IN CNAME casarray1.infoblox.com.;
+    %   casarray1.infoblox.com. 10 IN A 10.120.3.104;
+
+    Matches = case re:run(Bin,"(..-...-.... ..:..:......) client ((?:[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})|(?:[:a-f0-9]+)).* UDP: query: (.*) IN A+ response: NOERROR .*? IN A+ ((?:[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})|(?:[:a-f0-9]+));", [global, {capture,[1,3,2,4],binary}]) of
+        {match, M} -> M;
+        _ -> []
+    end,
+    {_, Result} = lists:foldl(
+        fun([Timestamp, Query, Requester, Resolved], {Lookup0, Acc}) ->
+            {Lookup1, RequesterAddr} = Lookup0(Requester),
+            Link = {
+                {Requester,
+                    [{who, requester},
+                     {label, RequesterAddr}]},
+                {Resolved,
+                    [{who, resolved},
+                     {label, Query}]},
+                [{timestamp, Timestamp}]
+            },
+            {Lookup1, [Link | Acc]}
+        end, {lookup_fn(), []}, Matches),
+    Result.
+
+output(Data) ->
+    lists:foldl(
+        fun({{Requester, RequesterMeta},
+            {Resolved, ResolvedMeta},
+            LinkMeta}, Acc) ->
+            [
+                dobby_identifier(Requester, RequesterMeta),
+                dobby_identifier(Resolved, ResolvedMeta),
+                dobby_metadata(LinkMeta)
+                | Acc
+            ]
+        end, [], Data).
+
+dobby_identifier(Identifier, Metadata) ->
+    {
+        Identifier,
+        dobby_metadata(Metadata)
+    }.
+
+dobby_metadata(Metadata) ->
+    lists:map(
+        fun({Key, Value}) ->
+            {to_binary(Key), to_binary(Value)}
+        end, Metadata).
+
+to_binary(V) when is_atom(V) ->
+    atom_to_binary(V, latin1);
+to_binary(V) when is_list(V) ->
+    list_to_binary(V);
+to_binary(V) when is_binary(V) ->
+    V.
+
+lookup_fn() ->
+    Cache0 = dict:new(),
+    lookup_fn(Cache0).
+
+lookup_fn(Cache0) ->
+    fun Lookup(Addr) ->
+        case dict:find(Addr, Cache0) of
+            {ok, Hostname} ->
+                {Lookup, Hostname};
+            error ->
+                Hostname = lookup(Addr),
+                Cache1 = dict:store(Addr, Hostname, Cache0),
+                {lookup_fn(Cache1), Hostname}
+        end
+    end.
+
+lookup(Addr) ->
+    R = case inet:gethostbyaddr(Addr) of
+        {ok, #hostent{h_name = Hostname}} ->
+            Hostname;
+        {error, Error} ->
+            lists:flatten(io_lib:format("notfound_~p", [Error]))
+    end,
+    list_to_binary(R).
