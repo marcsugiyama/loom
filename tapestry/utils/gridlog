@@ -205,12 +205,18 @@ output(Data) ->
             {Resolved, ResolvedMeta},
             LinkMeta}, Acc) ->
             [
-                dobby_identifier(Requester, RequesterMeta),
-                dobby_identifier(Resolved, ResolvedMeta),
-                dobby_metadata(LinkMeta)
-                | Acc
+                tapestry_link(Requester),
+                tapestry_link(Resolved),
+                {
+                    dobby_identifier(Requester, RequesterMeta),
+                    dobby_identifier(Resolved, ResolvedMeta),
+                    dobby_metadata(LinkMeta)
+                } | Acc
             ]
         end, [], Data).
+
+tapestry_link(Identifier) ->
+    {<<"tapestry:data">>, Identifier, [{<<"type">>,<<"tapestry:data">>}]}.
 
 dobby_identifier(Identifier, Metadata) ->
     {
