@@ -76,6 +76,8 @@
     flows/1,
     dns_tap/5,
     dns_tap/6,
+    tap/5,
+    tap/6,
     tapestry_config/1,
     tapestry_config/2,
     tapestry_config/3,
@@ -378,6 +380,30 @@ clear_flows(Key, TableId) ->
     Request = of_msg_lib:flow_delete(Version, [], [{table_id, TableId}]),
     send(Key, Request).
 
+%% @equiv tap(default, Cookie, Priority, Port1, OutPort1, OutPort2)
+tap(Cookie, Priority, Port1, OutPort1, OutPort2) ->
+    tap(default, Cookie, Priority, Port1, OutPort1, OutPort2).
+
+%% @doc
+%% Forward packets from Port1 to OutPort1 and OutPort2.  Flows
+%% are installed in table 0 with priority Priority.
+%% If Key is ``default'', adds flow on the default switch.
+%% @end
+-spec tap(switch_key(), binary(), integer(), integer(), integer(), integer()) -> {ok, ofp_message()} | {error, error_reason()}.
+tap(Key, Cookie, Priority, Port1, OutPort1, OutPort2) ->
+    Version = version(Key),
+    % Matches must be in a specific order, otherwise of_msg_lib will
+    % complain about missing or bad required fields.
+    Matches = [{in_port, <<Port1:32>>}],
+    Instructions = [{apply_actions, [{output, OutPort1, no_buffer},
+                                     {output, OutPort2, no_buffer}]}],
+    Opts = [{table_id,0}, {priority, Priority},
+            {idle_timeout, 0}, {idle_timeout, 0},
+            {cookie, Cookie},
+            {cookie_mask, <<0,0,0,0,0,0,0,0>>}],
+    Msg = of_msg_lib:flow_add(Version, Matches, Instructions, Opts),
+    send(Key, Msg).
+
 %% @equiv dns_tap(default, Priority, Port1, Port2, Port3, DnsIps)
 dns_tap(Priority, Port1, Port2, Port3, DnsIps) ->
     dns_tap(default, Priority, Port1, Port2, Port3, DnsIps).
@@ -385,7 +411,7 @@ dns_tap(Priority, Port1, Port2, Port3, DnsIps) ->
 %% @doc
 %% Forward udp packets from DnsIps on Port1 to Port2 and Port3.  Flows
 %% are installed in table 0 with priority Priority.
-%% If Key is ``default'', clear all flows on the default switch.
+%% If Key is ``default'', adds flows on the default switch.
 %% @end
 -spec dns_tap(switch_key(), integer(), integer(), integer(), integer(), ipaddress() | [ipaddress()]) -> {ok, ofp_message()} | {error, error_reason()}.
 dns_tap(Key, Priority, Port1, Port2, Port3, DnsIps) when is_list(DnsIps) ->
