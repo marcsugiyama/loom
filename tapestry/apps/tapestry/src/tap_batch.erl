@@ -209,10 +209,10 @@ parse_file(<<BitString:53/binary, BinaryData/binary>>, Data) ->
        ID2:20/binary, _Rest/binary>> = BitString,
     Timestamp = unix_time_to_universal(Time),
     Interaction = {ID1, [{timestamp, Timestamp},
-                         {who, requester},
+                         {who, <<"requester">>},
                          {label, <<"anonymous">>}],
                    ID2, [{timestamp, Timestamp},
-                         {who, resolved},
+                         {who, <<"resolved">>},
                          {label, <<"anonymous">>}]},
     parse_file(BinaryData, [{Time, Interaction} | Data]);
 parse_file(_BinaryData, []) ->
@@ -293,11 +293,11 @@ parse_logfile(Bin) ->
             [{Timestamp,
               {RequesterIpAddr,
                     [{timestamp, Timestamp},
-                     {who, requester},
+                     {who, <<"requester">>},
                      {label, <<"pending">>}]},
               {ResolvedIpAddr,
                     [{timestamp, Timestamp},
-                     {who, resolved},
+                     {who, <<"resolved">>},
                      {label, binary:copy(Query)}]}} | L]
         end, [], Matches)).
 

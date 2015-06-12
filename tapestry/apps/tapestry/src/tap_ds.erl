@@ -279,11 +279,11 @@ filter_function() ->
     ResolvedBlacklist = mkmasks(tap_config:getconfig(resolved_blacklist)),
     QueryWhitelist = mkres(tap_config:getconfig(query_whitelist)),
     QueryBlacklist = mkres(tap_config:getconfig(query_blacklist)),
-    fun(resolved, ResolvedIpAddr, Query) ->
+    fun(<<"resolved">>, ResolvedIpAddr, Query) ->
         tap_dns:allow(ResolvedIpAddr, ResolvedWhitelist, ResolvedBlacklist)
             andalso
         tap_dns:allowquery(Query, QueryWhitelist, QueryBlacklist);
-       (requester, RequesterIpAddr, Query) ->
+       (<<"requester">>, RequesterIpAddr, Query) ->
         tap_dns:allow(RequesterIpAddr, RequesterWhitelist, RequesterBlacklist)
             andalso
         tap_dns:allowquery(Query, QueryWhitelist, QueryBlacklist)

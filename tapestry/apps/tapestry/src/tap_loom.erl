@@ -193,10 +193,10 @@ dns_reply(Data, DatapathId, CollectorIP) ->
                                 DateTime = calendar:universal_time(),
 				Interaction = {
                                    {R, [{timestamp, DateTime},
-                                        {who, requester}, 
+                                        {who, <<"requester">>}, 
                                         {label, tap_dns:gethostbyaddr(R)}]},
                                    {ID, [{timestamp, DateTime},
-                                         {who, resolved},
+                                         {who, <<"resolved">>},
                                          {label, list_to_binary(Query)}]}},
 				?DEBUG("Sending: ~p~n",[Interaction]),
                                 tap_aggr:dns_reply(DatapathId, CollectorIP,

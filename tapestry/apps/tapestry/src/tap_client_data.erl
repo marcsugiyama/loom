@@ -375,9 +375,9 @@ json_nci_details(Time, NCI,
 
 requesters(VertexInfoD) ->
     dict:fold(
-        fun(K, #{who := requester}, L) ->
+        fun(K, #{who := <<"requester">>}, L) ->
             [endpoint(K) | L];
-           (_, #{who := resolved}, L) ->
+           (_, #{who := <<"resolved">>}, L) ->
             L
         end, [], VertexInfoD).
 
