@@ -375,23 +375,20 @@ json_nci_details(Time, NCI,
 
 requesters(VertexInfoD) ->
     dict:fold(
-        fun(K, {_, PL}, L) ->
-            case is_requester(PL) of
-                true -> [endpoint(K) | L];
-                false -> L
-            end
+        fun(K, #{who := requester}, L) ->
+            [endpoint(K) | L];
+           (_, #{who := resolved}, L) ->
+            L
         end, [], VertexInfoD).
-
-is_requester(PL) ->
-    proplists:get_value(who, PL) == requester.
 
 labels(VertexInfoD) ->
     {
-        [{endpoint(K), label(PL)} || {K,{_, PL}} <- dict:to_list(VertexInfoD)]
+        [{endpoint(K), label(Label)} ||
+                        {K, #{label := Label}} <- dict:to_list(VertexInfoD)]
     }.
 
-label(PL) ->
-    format_label(name_value(proplists:get_value(label, PL))).
+label(Label) ->
+    format_label(name_value(Label)).
 
 format_label(Name) ->
     {[{<<"Name">>, Name}]}.
