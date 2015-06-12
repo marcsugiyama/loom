@@ -66,7 +66,7 @@ graph(Nodes, Edges) ->
     % Edges0: Node -> [Edge]
     % GEdges: [Edge]
     {EdgesD0, GEdges} = lists:foldl(
-        fun({_, N1, N2, _}, {D, L}) ->
+        fun({N1, N2}, {D, L}) ->
             Edge = vsort({N1,N2}),
             {
                 dict_append(N1, {N2, Edge},

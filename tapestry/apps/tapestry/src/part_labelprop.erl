@@ -264,5 +264,5 @@ vsort(V1, V2) ->
 new_digraph(Vertices, Edges) ->
     G = digraph:new(),
     lists:foreach(fun(V)-> digraph:add_vertex(G,V,V) end, Vertices),
-    lists:foreach(fun({_, V1,V2, _}) -> digraph:add_edge(G, V1,V2) end, Edges),
+    lists:foreach(fun({V1,V2}) -> digraph:add_edge(G, V1,V2) end, Edges),
     G.

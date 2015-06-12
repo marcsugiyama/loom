@@ -190,10 +190,13 @@ dns_reply(Data, DatapathId, CollectorIP) ->
 			    {ok, ID, Query} ->
 				R = list_to_tuple(
                                         binary_to_list(Header1#ipv4.daddr)),
+                                DateTime = calendar:universal_time(),
 				Interaction = {
-                                   {R, [{who, requester}, 
+                                   {R, [{timestamp, DateTime},
+                                        {who, requester}, 
                                         {label, tap_dns:gethostbyaddr(R)}]},
-                                   {ID, [{who, resolved},
+                                   {ID, [{timestamp, DateTime},
+                                         {who, resolved},
                                          {label, list_to_binary(Query)}]}},
 				?DEBUG("Sending: ~p~n",[Interaction]),
                                 tap_aggr:dns_reply(DatapathId, CollectorIP,

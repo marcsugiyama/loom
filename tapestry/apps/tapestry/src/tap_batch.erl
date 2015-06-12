@@ -197,6 +197,7 @@ locate_log_file([{FileName, Binary} | Rest]) ->
         _ -> locate_log_file(Rest)
     end.
 
+% anonymized
 parse_file(bad_file) ->
     [];
 parse_file(BinaryData) ->
@@ -206,7 +207,13 @@ parse_file(<<BitString:53/binary, BinaryData/binary>>, Data) ->
     <<Time:10/binary, _S:1/binary,
        ID1:20/binary, _S:1/binary,
        ID2:20/binary, _Rest/binary>> = BitString,
-    Interaction = {ID1, anonymous, ID2, anonymous},
+    Timestamp = unix_time_to_universal(Time),
+    Interaction = {ID1, [{timestamp, Timestamp},
+                         {who, requester},
+                         {label, <<"anonymous">>}],
+                   ID2, [{timestamp, Timestamp},
+                         {who, resolved},
+                         {label, <<"anonymous">>}]},
     parse_file(BinaryData, [{Time, Interaction} | Data]);
 parse_file(_BinaryData, []) ->
     {0, []};
@@ -218,6 +225,11 @@ parse_file(_BinaryData, Atad) ->
     QPS = safe_div(length(Data), TimeDiff),
     {QPS, Data}.
 
+unix_time_to_universal(Time) ->
+    % calendar:datetime_to_gregorian_seconds({{1970,1,1},{0,0,0}}) 
+    calendar:gregorian_seconds_to_datetime(62167219200 + Time).
+
+% grid log file
 parse_zlogfile(ZBin) ->
     Bin = safe_gunzip(ZBin),
     Data = parse_logfile(Bin),
@@ -280,10 +292,12 @@ parse_logfile(Bin) ->
             ResolvedIpAddr = tap_dns:inet_parse_address(Resolved),
             [{Timestamp,
               {RequesterIpAddr,
-                    [{who, requester},
+                    [{timestamp, Timestamp},
+                     {who, requester},
                      {label, <<"pending">>}]},
               {ResolvedIpAddr,
-                    [{who, resolved},
+                    [{timestamp, Timestamp},
+                     {who, resolved},
                      {label, binary:copy(Query)}]}} | L]
         end, [], Matches)).
 

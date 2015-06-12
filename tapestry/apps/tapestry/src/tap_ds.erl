@@ -46,7 +46,6 @@
 
 -define(STATE, tap_ds_state).
 -record(?STATE,{
-            digraph,
             community_detector,
             dirty,
             calc_timeout,
@@ -105,37 +104,27 @@ init([]) ->
     CalcTimeout = tap_config:getconfig(nci_calc_time_limit_sec),
     {ok, #?STATE{calc_timeout = CalcTimeout, dirty = true}}.
 
-handle_call({save_graph, Filename}, _From,
-                                        State = #?STATE{digraph = Digraph}) ->
-    Reply = save_graph(Filename, Digraph),
+handle_call({save_graph, Filename}, _From, State) ->
+    Reply = save_graph(Filename),
     {reply, Reply, State};
-handle_call({load_graph, Filename}, _From,
-                                        State = #?STATE{digraph = Digraph}) ->
-    digraph:delete(Digraph),
-    NewDigraph = load_graph(Filename),
-    {reply, ok, State#?STATE{dirty = true, digraph = NewDigraph}};
+handle_call({load_graph, Filename}, _From, State) ->
+    tap_gs:clear(),
+    load_graph(Filename),
+    {reply, ok, State#?STATE{dirty = true}};
 handle_call(Msg, From, State) ->
     error({no_handle_call, ?MODULE}, [Msg, From, State]).
 
 handle_cast(start, State) ->
-    {noreply, State#?STATE{digraph = digraph:new()}};
+    {noreply, State};
 handle_cast(dirty, State) ->
     {noreply, State#?STATE{dirty = true}};
-handle_cast({update_label, Vertex, Data = {Key, _}},
-                                    State = #?STATE{digraph = Digraph}) ->
-    case digraph:vertex(Digraph, Vertex) of
-        false ->
-            ok;
-        {_, {Timestamp, PL}} ->
-            NewPL = lists:keyreplace(Key, 1, PL, Data),
-            digraph:add_vertex(Digraph, Vertex, {Timestamp, NewPL})
-    end,
+handle_cast({update_label, Vertex, Data}, State) ->
+    ok = tap_gs:update_vertex(Vertex, [Data]),
     {noreply, State, hibernate};
-handle_cast({ordered_edges, Edges}, State = #?STATE{digraph = Digraph}) ->
-    add_edges(Digraph, Edges),
+handle_cast({ordered_edges, Edges}, State) ->
+    add_edges(Edges),
     {noreply, State#?STATE{dirty = true}, hibernate};
-handle_cast(push_nci, State = #?STATE{digraph = Digraph,
-                                      dirty = Dirty,
+handle_cast(push_nci, State = #?STATE{dirty = Dirty,
                                       calc_pid = CalcPid,
                                       calc_timeout = CalcTimeout}) ->
     NewState = case calculating(CalcPid) of
@@ -149,15 +138,15 @@ handle_cast(push_nci, State = #?STATE{digraph = Digraph,
                     ?DEBUG("Skipping NCI Calculation, no new data"),
                     State;
                 _ ->
-                    Pid = push_nci(Digraph, digraph:no_vertices(Digraph)),
+                    Pid = push_nci(tap_gs:no_vertices()),
                     nci_watchdog(Pid, CalcTimeout),
                     State#?STATE{calc_pid = Pid, dirty = false}
             end
     end,
     {noreply, NewState, hibernate};
-handle_cast({clean_data, DataMaxAge}, State = #?STATE{digraph = Digraph}) ->
+handle_cast({clean_data, DataMaxAge}, State) ->
     DateTime = calendar:universal_time(),
-    clean(Digraph, DateTime, DataMaxAge),
+    clean(DateTime, DataMaxAge),
     {noreply, State#?STATE{dirty = true}, hibernate};
 handle_cast({stop_nci, CalcPid}, State = #?STATE{calc_pid = CalcPid}) ->
     Dirty = case do_stop_nci(CalcPid) of
@@ -197,57 +186,52 @@ nci_watchdog(Pid, Timeout) ->
     {ok, TRef} = timer:apply_after(Timeout * 1000, ?MODULE, stop_nci, [Pid]),
     TRef.
 
-add_edges(Digraph, Edges)->
-    DateTime = calendar:universal_time(),
-    [add_edge(Digraph, E, DateTime) || E <- Edges],
+add_edges(Edges)->
+    [add_edge(E) || E <- Edges],
     tap_client_data:num_endpoints(
-        digraph:no_vertices(Digraph), digraph:no_edges(Digraph), DateTime).
+        tap_gs:no_vertices(), tap_gs:no_edges(), calendar:universal_time()).
 
-clean(G, T, MaxAge)->
+clean(T, MaxAge)->
     ?DEBUG("~n**** Cleaning Vertices~n"),
-    digraph:del_vertices(G,
-        cleaner(
-            fun(X) ->
-                {_, {TS, _}} = digraph:vertex(G, X),
-                TS
-            end, T, MaxAge, digraph:vertices(G))),
+    tap_gs:del_vertices(
+                cleaner(fun tap_gs:vertex/1, T, MaxAge, tap_gs:vertices())),
     ?DEBUG("~n**** Cleaning Edges~n"),
-    digraph:del_edges(G,
-        cleaner(
-            fun(X) ->
-                {_, _, _, {TS, _}} = digraph:edge(G, X),
-                TS
-            end, T, MaxAge, digraph:edges(G))).
+    tap_gs:del_edges(
+                cleaner(fun tap_gs:edge/1, T, MaxAge, tap_gs:edges())).
 
+% XXX override max age from metdata?
 cleaner(TSFn, T, MaxAge, List) ->
     Old = lists:filter(
-                    fun(X)->
-                        TS = TSFn(X),
-                        Age = days_to_seconds(calendar:time_difference(TS, T)),
-                        Age > MaxAge
-                    end, List),
+            fun(X)->
+                #{<<"timestamp">> := #{value := TS}} = TSFn(X),
+                Age = days_to_seconds(calendar:time_difference(TS, T)),
+                Age > MaxAge
+            end, List),
     ?DEBUG("~n**** Cleaning at Time ~p ****~nMaxAge = ~p~nStale Count = ~p~n****",[T, MaxAge, length(Old)]),
     Old.
 
-add_edge(G, {{A, MA}, {B, MB}}, Time) ->
+add_edge(Edge = {{A, MA}, {B, _}}) ->
     case A =/= B of
         true ->
-            V1 = digraph:add_vertex(G, A, {Time, MA}),
-            V2 = digraph:add_vertex(G, B, {Time, MB}),
-            update_edge(G, V1, V2, {Time, []}),
-            update_edge(G, V2, V1, {Time, []});
-        false -> error
-    end;
-add_edge(G, {A, B}, Time) ->
-    add_edge(G, {{A, []}, {B, []}}, Time).
+            ok = tap_gs:add_edge(Edge, [{timestamp, get_timestamp(MA)}]);
+        false ->
+            error
+    end.
 
-push_nci(_Digraph, 0) ->
+get_timestamp([]) ->
+    calendar:universal_time();
+get_timestamp([{timestamp, T} | _]) ->
+    T;
+get_timestamp([_ | R]) ->
+    get_timestamp(R).
+
+push_nci(0) ->
     % no data to process
     no_process;
-push_nci(Digraph, _NumVertices) ->
-    Vertices = ?LOGDURATION(digraph:vertices(Digraph)),
-    VertexInfo = ?LOGDURATION([digraph:vertex(Digraph, V) || V <- Vertices]),
-    Edges = ?LOGDURATION([digraph:edge(Digraph, E) || E <- digraph:edges(Digraph)]),
+push_nci(_NumVertices) ->
+    Vertices = ?LOGDURATION(tap_gs:vertices()),
+    VertexInfo = ?LOGDURATION([{V, tap_gs:vertex(V)} || V <- Vertices]),
+    Edges = ?LOGDURATION(tap_gs:edges()),
     FilterFn = filter_function(),
     % Read the environment to get the module to use for label propagation.
     % Do this everytime the calculation is done so it can be changed at
@@ -313,24 +297,17 @@ apply_filter(FilterFn, VertexInfo, Edges) ->
                 FilterFn(Who, IpAddr, Query)
             end, VertexInfo),
     FilteredVerticesSet = sets:from_list([V || {V, _} <- FilteredVertexInfo]),
+    % XXX Remove vertices that are no longer connected
     FilteredEdges = 
         lists:filter(
-            fun({_, V1, V2, _}) ->
+            fun({V1, V2}) ->
                 sets:is_element(V1, FilteredVerticesSet) andalso
                     sets:is_element(V2, FilteredVerticesSet)
             end, Edges),
     {FilteredVertexInfo, FilteredEdges}.
 
-vertex({IpAddr, {_, Properties}}) ->
-    {Who, Query} = vertex_properties(Properties, {undefined, undefined}),
+vertex({IpAddr, #{label := Query, who := Who}}) ->
     {Who, IpAddr, Query}.
-
-vertex_properties([], Result) ->
-    Result;
-vertex_properties([{who, Who} | Rest], {_, Query}) ->
-    vertex_properties(Rest, {Who, Query});
-vertex_properties([{label, Query} | Rest], {Who, _}) ->
-    vertex_properties(Rest, {Who, Query}).
 
 mkmasks(MaskList) ->
     [tap_dns:mkmask(tap_dns:inet_parse_address(Addr), Length) ||
@@ -382,18 +359,6 @@ dict_fetch(Key, Dict, Default) ->
         {ok, Value} -> Value
     end.
 
-update_edge(G, V1, V2, TimeMetadata) ->
-    % XXX use add_edge(G, {V1,V2}, V1, V2, Time) instead?
-    Found = lists:filter(
-                    fun(X)-> 
-                        {_, _, FV2, _} = digraph:edge(G, X),
-                        V2 == FV2
-                    end, digraph:out_edges(G, V1)),
-    case Found of
-        [] -> digraph:add_edge(G, V1, V2, TimeMetadata);
-        [E] -> digraph:add_edge(G, E, V1, V2, TimeMetadata)
-    end.
-
 days_to_seconds({D, {H, M, S}}) ->
    (D * 24 * 60 * 60) + (H * 60 * 60) + (M * 60) + S.
 
@@ -416,15 +381,15 @@ calculating(no_process) ->
 calculating(Pid) when is_pid(Pid) ->
     is_process_alive(Pid).
 
-save_graph(Filename, Digraph) ->
-    ?INFO("Saving ~B edges to ~s~n", [digraph:no_edges(Digraph), Filename]),
+save_graph(Filename) ->
+    ?INFO("Saving ~B edges to ~s~n", [tap_gs:no_edges(), Filename]),
     Data = lists:map(
         fun(E) ->
-            {_, V1, V2, Meta} = digraph:edge(Digraph, E),
-            {_, V1Meta} = digraph:vertex(Digraph, V1),
-            {_, V2Meta} = digraph:vertex(Digraph, V2),
+            {_, V1, V2, Meta} = tap_gs:edge(E),
+            {_, V1Meta} = tap_gs:vertex(V1),
+            {_, V2Meta} = tap_gs:vertex(V2),
             {{V1, V1Meta}, {V2, V2Meta}, Meta}
-        end, digraph:edges(Digraph)),
+        end, tap_gs:edges()),
     ?INFO("Writing file~n"),
     file:write_file(Filename, io_lib:format("~p.~n", [Data])),
     ?INFO("Write complete~n").
@@ -433,12 +398,10 @@ load_graph(Filename) ->
     ?INFO("Loading data from ~s~n", [Filename]),
     {ok, [Data]} = file:consult(Filename),
     ?INFO("Loading ~B edges~n", [length(Data)]),
-    G = digraph:new(),
     lists:foreach(
         fun({{V1, V1Meta}, {V2, V2Meta}, Meta}) ->
-            digraph:add_vertex(G, V1, V1Meta),
-            digraph:add_vertex(G, V2, V2Meta),
-            digraph:add_edge(G, V1, V2, Meta)
+            tap_gs:add_vertex(V1, V1Meta),
+            tap_gs:add_vertex(V2, V2Meta),
+            tap_gs:add_edge(V1, V2, Meta)
         end, Data),
-    ?INFO("Load Complete~n"),
-    G.
+    ?INFO("Load Complete~n").
