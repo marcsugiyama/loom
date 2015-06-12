@@ -93,7 +93,7 @@ graph(Nodes, Edges) ->
 %   [{Community, [Node]}], % maps community to nodes in the community
 %   {
 %      [Node], % vertices (i.e., endpoints) in the graph
-%      [{Node1, Node2}] % interfactions (i.e., edges) between Nodes
+%      [{Node1, Node2}] % interactions (i.e., edges) between Nodes
 %   {,
 %   {
 %      [Community], % communities
