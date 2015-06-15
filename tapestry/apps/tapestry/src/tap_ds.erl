@@ -253,6 +253,8 @@ push_nci(_NumVertices) ->
                         ?LOGDURATION(CommunityDetector:find_communities(G)),
                 CommunitySizes = [{Community, length(Vs)} ||
                                         {Community, Vs} <- Communities],
+                % store communities in graph
+                store_communities(Communities),
                 NCI = nci:compute_from_communities(CommunitySizes),
                 CommunityD =
                     ?LOGDURATION(pivot_communities(Communities, Graph)),
@@ -271,6 +273,15 @@ push_nci(_NumVertices) ->
             end
         end),
     Pid.
+
+% XXX remove old communities
+store_communities([]) ->
+    ok;
+store_communities([{Community, Vertices} | R]) ->
+    ok = tap_dobby:publish([
+            tap_dobby:community_endpoint_link(Community, Vertex) ||
+                                                        Vertex <- Vertices]),
+    store_communities(R).
 
 filter_function() ->
     RequesterWhitelist = mkmasks(tap_config:getconfig(requester_whitelist)),
