@@ -32,7 +32,7 @@ clear() ->
 
 % Get vertex metadata (returns metadata_info()).
 vertex(Vertex) ->
-    tap_dobby:endpoint(Vertex).
+    values(tap_dobby:endpoint(Vertex)).
 
 % Add vertex
 % Metadata is a property list
@@ -50,7 +50,7 @@ update_vertex(Vertex, Metadata) ->
 
 % Get edge metadata
 edge(Edge) ->
-    tap_dobby:edge(Edge).
+    values(tap_dobby:edge(Edge)).
 
 % Add edge/update
 % Metadata is a property list
@@ -112,3 +112,10 @@ delete_stranded_edges(Vertices) ->
             end
         end, [], edges()),
     tap_mnesia:deletes(edge, Edges).
+
+% extract value from identifier metdata info
+values(Map) ->
+    maps:map(
+        fun(_, #{value := Value}) ->
+            Value
+        end, Map).

@@ -208,12 +208,12 @@ parse_file(<<BitString:53/binary, BinaryData/binary>>, Data) ->
        ID1:20/binary, _S:1/binary,
        ID2:20/binary, _Rest/binary>> = BitString,
     Timestamp = unix_time_to_universal(Time),
-    Interaction = {ID1, [{timestamp, Timestamp},
-                         {who, <<"requester">>},
-                         {label, <<"anonymous">>}],
+    Interaction = {ID1, [{<<"timestamp">>, Timestamp},
+                         {<<"who">>, <<"requester">>},
+                         {<<"label">>, <<"anonymous">>}],
                    ID2, [{timestamp, Timestamp},
-                         {who, <<"resolved">>},
-                         {label, <<"anonymous">>}]},
+                         {<<"who">>, <<"resolved">>},
+                         {<<"label">>, <<"anonymous">>}]},
     parse_file(BinaryData, [{Time, Interaction} | Data]);
 parse_file(_BinaryData, []) ->
     {0, []};
@@ -292,20 +292,20 @@ parse_logfile(Bin) ->
             ResolvedIpAddr = tap_dns:inet_parse_address(Resolved),
             [{Timestamp,
               {RequesterIpAddr,
-                    [{timestamp, Timestamp},
-                     {who, <<"requester">>},
-                     {label, <<"pending">>}]},
+                    [{<<"timestamp">>, Timestamp},
+                     {<<"who">>, <<"requester">>},
+                     {<<"label">>, <<"pending">>}]},
               {ResolvedIpAddr,
-                    [{timestamp, Timestamp},
-                     {who, <<"resolved">>},
-                     {label, binary:copy(Query)}]}} | L]
+                    [{<<"timestamp">>, Timestamp},
+                     {<<"who">>, <<"resolved">>},
+                     {<<"label">>, binary:copy(Query)}]}} | L]
         end, [], Matches)).
 
 queue_requester_lookups(Data) ->
     lists:foreach(
         fun({_, {IpAddr, _}, _}) ->
             UpdateFn =  fun(Name) ->
-                            tap_ds:update_label(IpAddr, {label, Name})
+                            tap_ds:update_label(IpAddr, {<<"label">>, Name})
                         end,
             tap_dns:gethostbyaddr_async(IpAddr, UpdateFn)
         end, Data).

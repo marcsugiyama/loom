@@ -203,7 +203,7 @@ clean(T, MaxAge)->
 cleaner(TSFn, T, MaxAge, List) ->
     Old = lists:filter(
             fun(X)->
-                #{<<"timestamp">> := #{value := TS}} = TSFn(X),
+                #{<<"timestamp">> := TS} = TSFn(X),
                 Age = days_to_seconds(calendar:time_difference(TS, T)),
                 Age > MaxAge
             end, List),
@@ -213,14 +213,14 @@ cleaner(TSFn, T, MaxAge, List) ->
 add_edge(Edge = {{A, MA}, {B, _}}) ->
     case A =/= B of
         true ->
-            ok = tap_gs:add_edge(Edge, [{timestamp, get_timestamp(MA)}]);
+            ok = tap_gs:add_edge(Edge, [{<<"timestamp">>, get_timestamp(MA)}]);
         false ->
             error
     end.
 
 get_timestamp([]) ->
     calendar:universal_time();
-get_timestamp([{timestamp, T} | _]) ->
+get_timestamp([{<<"timestamp">>, T} | _]) ->
     T;
 get_timestamp([_ | R]) ->
     get_timestamp(R).
@@ -317,7 +317,7 @@ apply_filter(FilterFn, VertexInfo, Edges) ->
             end, Edges),
     {FilteredVertexInfo, FilteredEdges}.
 
-vertex({IpAddr, #{label := Query, who := Who}}) ->
+vertex({IpAddr, #{<<"label">> := Query, <<"who">> := Who}}) ->
     {Who, IpAddr, Query}.
 
 mkmasks(MaskList) ->
