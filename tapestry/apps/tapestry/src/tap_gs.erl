@@ -73,14 +73,12 @@ no_edges() ->
 del_vertices(Vertices) ->
     ok = tap_mnesia:deletes(vertex, Vertices),
     delete_stranded_edges(Vertices),
-    Delete = [{V, delete} || V <- Vertices],
-    ok = tap_dobby:publish(Delete).
+    ok = tap_dobby:delete_endpoints(Vertices).
 
 % Delete Edges
 del_edges(Edges) ->
-    ok = tap_mnesia:delete(edge, Edges),
-    Delete = [{A, B, delete} || {A, B} <- Edges],
-    ok = tap_dobby:publish(Delete).
+    ok = tap_mnesia:deletes(edge, Edges),
+    ok = tap_dobby:delete_edges(Edges).
 
 % List of vertices
 vertices() ->
@@ -102,7 +100,7 @@ normal_edge(A, B) ->
 delete_stranded_edges(Vertices) ->
     VerticesSet = sets:from_list(Vertices),
     Edges = lists:foldl(
-        fun(#edge{edge = Edge = {A, B}}, Acc) ->
+        fun(Edge = {A, B}, Acc) ->
             case sets:is_element(A, VerticesSet) orelse
                     sets:is_element(B, VerticesSet) of
                 true ->

@@ -6,6 +6,8 @@
     publish/1,
     endpoint/1,
     edge/1,
+    delete_endpoints/1,
+    delete_edges/1,
     endpoint_name/1,
     endpoint_link/5,
     community_name/1,
@@ -20,6 +22,13 @@ endpoint(Endpoint) ->
 
 edge({A, B}) ->
     dby:link_metadata(endpoint_name(A), endpoint_name(B)).
+
+delete_endpoints(Endpoints) ->
+    publish([{endpoint_name(Endpoint), delete} || Endpoint <- Endpoints]).
+
+delete_edges(Edges) ->
+    publish([{endpoint_name(A), endpoint_name(B), delete} ||
+                                                        {A, B} <- Edges]).
 
 endpoint_name(Endpoint) ->
     iolist_to_binary([<<"endpoint-">>, format_identifier(Endpoint)]).

@@ -192,10 +192,10 @@ add_edges(Edges)->
         tap_gs:no_vertices(), tap_gs:no_edges(), calendar:universal_time()).
 
 clean(T, MaxAge)->
-    ?DEBUG("~n**** Cleaning Vertices~n"),
+    ?DEBUG("\n**** Cleaning Vertices\n"),
     tap_gs:del_vertices(
                 cleaner(fun tap_gs:vertex/1, T, MaxAge, tap_gs:vertices())),
-    ?DEBUG("~n**** Cleaning Edges~n"),
+    ?DEBUG("\n**** Cleaning Edges\n"),
     tap_gs:del_edges(
                 cleaner(fun tap_gs:edge/1, T, MaxAge, tap_gs:edges())).
 
@@ -204,7 +204,8 @@ cleaner(TSFn, T, MaxAge, List) ->
     Old = lists:filter(
             fun(X)->
                 #{<<"timestamp">> := TS} = TSFn(X),
-                Age = days_to_seconds(calendar:time_difference(TS, T)),
+                Age = days_to_seconds(calendar:time_difference(
+                                        tap_time:rfc3339_to_epoch(TS), T)),
                 Age > MaxAge
             end, List),
     ?DEBUG("~n**** Cleaning at Time ~p ****~nMaxAge = ~p~nStale Count = ~p~n****",[T, MaxAge, length(Old)]),

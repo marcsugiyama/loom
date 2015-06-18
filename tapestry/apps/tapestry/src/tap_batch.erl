@@ -207,7 +207,7 @@ parse_file(<<BitString:53/binary, BinaryData/binary>>, Data) ->
     <<Time:10/binary, _S:1/binary,
        ID1:20/binary, _S:1/binary,
        ID2:20/binary, _Rest/binary>> = BitString,
-    Timestamp = unix_time_to_universal(Time),
+    Timestamp = tap_time:rfc3339(unix_time_to_universal(Time)),
     Interaction = {ID1, [{<<"timestamp">>, Timestamp},
                          {<<"who">>, <<"requester">>},
                          {<<"label">>, <<"anonymous">>}],
@@ -241,9 +241,7 @@ parse_zlogfile(ZBin) ->
             % extract first and last datetime
             [{StartTime, _, _}|_] = Data,
             {EndTime, _, _} = lists:last(Data),
-            TimeDiff = tap_time:universal_time_diff(
-                            parse_timestamp(StartTime),
-                            parse_timestamp(EndTime)),
+            TimeDiff = tap_time:universal_time_diff(StartTime, EndTime),
             QPS = safe_div(length(Data), TimeDiff),
             {QPS, Data}
     end.
@@ -287,16 +285,18 @@ parse_logfile(Bin) ->
     % This makes the batch processing more consistent with the packet_in
     % processing.
     lists:reverse(lists:foldl(
-        fun([Timestamp, Query, Requester, Resolved], L) ->
+        fun([TimestampB, Query, Requester, Resolved], L) ->
             RequesterIpAddr = tap_dns:inet_parse_address(Requester),
             ResolvedIpAddr = tap_dns:inet_parse_address(Resolved),
+            Timestamp = parse_timestamp(TimestampB),
+            TimestampS = tap_time:rfc3339(Timestamp),
             [{Timestamp,
               {RequesterIpAddr,
-                    [{<<"timestamp">>, Timestamp},
+                    [{<<"timestamp">>, TimestampS},
                      {<<"who">>, <<"requester">>},
                      {<<"label">>, <<"pending">>}]},
               {ResolvedIpAddr,
-                    [{<<"timestamp">>, Timestamp},
+                    [{<<"timestamp">>, TimestampS},
                      {<<"who">>, <<"resolved">>},
                      {<<"label">>, binary:copy(Query)}]}} | L]
         end, [], Matches)).
